@@ -18,7 +18,8 @@ const routes = {
     '/api/fundamentals': (await import('../api/fundamentals.js')).default,
     '/api/quote': (await import('../api/quote.js')).default,
     '/api/search': (await import('../api/search.js')).default,
-    '/api/dividends': (await import('../api/dividends.js')).default
+    '/api/dividends': (await import('../api/dividends.js')).default,
+    '/api/fii': (await import('../api/fii.js')).default
 };
 
 const server = http.createServer(async (req, res) => {

@@ -47,25 +47,40 @@ function loadEnv() {
 }
 
 async function fetchActivesFromInvestidor10(walletUrl) {
+    const walletIdMatch = walletUrl.match(/\/wallet\/(?:public|my-wallet)\/(\d+)/);
+    const walletId = walletIdMatch ? walletIdMatch[1] : null;
+
     const { chromium } = await import('playwright');
     const browser = await chromium.launch({ args: ['--no-sandbox'] });
     const page = await browser.newPage();
 
-    const found = [];
-    page.on('response', async (res) => {
-        if (res.url().includes('/summary/actives/')) {
-            try {
-                const json = await res.json();
-                if (Array.isArray(json.data)) found.push(...json.data);
-            } catch { /* resposta nao-JSON ou ja consumida */ }
-        }
-    });
-
     await page.goto(walletUrl, { waitUntil: 'networkidle', timeout: 45000 });
-    await page.waitForTimeout(2000);
+    await page.waitForTimeout(1500);
+
+    // A pagina so carrega a aba "Ticker" (acoes) por padrao -- busca "Fii" tambem,
+    // direto pela API, reaproveitando a sessao ja aberta no navegador.
+    const stocks = walletId ? await fetchActivesType(page, walletId, 'Ticker') : [];
+    const fiis = walletId ? await fetchActivesType(page, walletId, 'Fii') : [];
+
     await browser.close();
 
-    return found;
+    return {
+        stocks: stocks.map(a => ({ ...a, assetType: 'stock' })),
+        fiis: fiis.map(a => ({ ...a, assetType: 'fii' }))
+    };
+}
+
+async function fetchActivesType(page, walletId, type) {
+    try {
+        const result = await page.evaluate(async ({ walletId, type }) => {
+            const res = await fetch(`/wallet/api/proxy/wallet-app/summary/actives/${walletId}/${type}?raw=1&selected_wallet_currency=BRL&api_version=v2`);
+            if (!res.ok) return null;
+            return res.json();
+        }, { walletId, type });
+        return Array.isArray(result?.data) ? result.data : [];
+    } catch {
+        return [];
+    }
 }
 
 async function fetchValuation(ticker) {
@@ -110,15 +125,39 @@ async function fetchValuation(ticker) {
     const lynch = pl > 0 ? (growth + (dyOk ? dy * 100 : 0)) / pl : null;
 
     return {
+        type: 'stock',
         vpa: vpa > 0 ? vpa : null,
         dy: dyOk ? dy : null,
         growth,
         lpa: Number.isFinite(lpa) ? lpa : null,
         pl: Number.isFinite(pl) && pl > 0 ? pl : null,
         graham,
+        fairPrice: graham,
         bazin,
         lynch,
         roe: Number.isFinite(roe) ? roe : null
+    };
+}
+
+async function fetchFiiValuation(ticker) {
+    const res = await fetch(`${FUNDAMENTALS_BASE}/api/fii?ticker=${encodeURIComponent(ticker)}`).catch(() => null);
+    if (!res || !res.ok) return null;
+    const data = await res.json().catch(() => null);
+    if (!data || !Number.isFinite(data.price) || data.price <= 0) return null;
+
+    const fairPrice = (data.pvp > 0) ? data.price / data.pvp : null;
+    const dyOk = Number.isFinite(data.dy) && data.dy > 0;
+    const bazin = dyOk ? (data.price * data.dy) / 0.06 : null;
+
+    return {
+        type: 'fii',
+        pvp: data.pvp ?? null,
+        dy: dyOk ? data.dy : null,
+        fairPrice,
+        graham: null,
+        bazin,
+        lynch: null,
+        roe: null
     };
 }
 
@@ -133,20 +172,22 @@ async function main() {
     }
 
     console.log('Buscando ativos no Investidor10...');
-    const actives = await fetchActivesFromInvestidor10(walletUrl);
+    const { stocks, fiis } = await fetchActivesFromInvestidor10(walletUrl);
+    const actives = [...stocks, ...fiis];
     if (actives.length === 0) {
         console.error('Nenhum ativo encontrado. O link publico pode ter mudado de formato.');
         process.exit(1);
     }
-    console.log(`Encontrados ${actives.length} ativos: ${actives.map(a => a.ticker_name).join(', ')}`);
+    console.log(`Encontrados ${stocks.length} ação(ões): ${stocks.map(a => a.ticker_name).join(', ') || '-'}`);
+    console.log(`Encontrados ${fiis.length} FII(s): ${fiis.map(a => a.ticker_name).join(', ') || '-'}`);
 
     const portfolio = {};
     for (let i = 0; i < actives.length; i++) {
         const a = actives[i];
         const ticker = a.ticker_name;
-        process.stdout.write(`  [${i + 1}/${actives.length}] ${ticker}... `);
+        process.stdout.write(`  [${i + 1}/${actives.length}] ${ticker} (${a.assetType})... `);
 
-        const valuation = await fetchValuation(ticker);
+        const valuation = a.assetType === 'fii' ? await fetchFiiValuation(ticker) : await fetchValuation(ticker);
         if (!valuation) {
             console.log('falhou (sem dados de mercado), pulando');
             continue;
