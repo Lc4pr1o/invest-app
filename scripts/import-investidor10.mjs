@@ -32,7 +32,6 @@ if (!process.env.NODE_EXTRA_CA_CERTS && fs.existsSync(corporateCaPath)) {
 }
 
 const FUNDAMENTALS_BASE = 'https://invest-app-fawn.vercel.app';
-const BRAPI_TOKEN = 'oFmq3TNueUU1ivaS2KbScJ';
 const DEFAULT_GROWTH = 10;
 
 function loadEnv() {
@@ -40,7 +39,7 @@ function loadEnv() {
     const env = {};
     if (fs.existsSync(envPath)) {
         for (const line of fs.readFileSync(envPath, 'utf8').split('\n')) {
-            const m = line.match(/^([A-Z0-9_]+)=(.*)$/);
+            const m = line.replace(/\r$/, '').match(/^([A-Z0-9_]+)=(.*)$/);
             if (m) env[m[1]] = m[2].trim();
         }
     }
@@ -104,12 +103,12 @@ function extractValuationInputs(stock) {
     return { price, lpa, vpa, pe, dy };
 }
 
-async function fetchQuoteWithFallback(ticker) {
+async function fetchQuoteWithFallback(ticker, brapiToken) {
     const urls = [
-        `https://brapi.dev/api/quote/${encodeURIComponent(ticker)}?dividends=true&token=${BRAPI_TOKEN}`,
-        `https://brapi.dev/api/quote/${encodeURIComponent(ticker)}?token=${BRAPI_TOKEN}`,
-        `https://brapi.dev/api/quote/${encodeURIComponent(ticker)}?fundamental=true&dividends=true&token=${BRAPI_TOKEN}`,
-        `https://brapi.dev/api/quote/${encodeURIComponent(ticker)}?fundamental=true&token=${BRAPI_TOKEN}`
+        `https://brapi.dev/api/quote/${encodeURIComponent(ticker)}?dividends=true&token=${brapiToken}`,
+        `https://brapi.dev/api/quote/${encodeURIComponent(ticker)}?token=${brapiToken}`,
+        `https://brapi.dev/api/quote/${encodeURIComponent(ticker)}?fundamental=true&dividends=true&token=${brapiToken}`,
+        `https://brapi.dev/api/quote/${encodeURIComponent(ticker)}?fundamental=true&token=${brapiToken}`
     ];
 
     for (const url of urls) {
@@ -121,11 +120,11 @@ async function fetchQuoteWithFallback(ticker) {
     return null;
 }
 
-async function fetchValuation(ticker) {
+async function fetchValuation(ticker, brapiToken) {
     const fundamentalsUrl = `${FUNDAMENTALS_BASE}/api/fundamentals?ticker=${encodeURIComponent(ticker)}`;
 
     const [data, fundRes] = await Promise.all([
-        fetchQuoteWithFallback(ticker),
+        fetchQuoteWithFallback(ticker, brapiToken),
         fetch(fundamentalsUrl).catch(() => null)
     ]);
 
@@ -173,8 +172,13 @@ function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 async function main() {
     const env = loadEnv();
     const walletUrl = env.LINK_CARTEIRA_IV10;
+    const brapiToken = env.BRAPI_TOKEN;
     if (!walletUrl) {
         console.error('LINK_CARTEIRA_IV10 nao encontrado no .env');
+        process.exit(1);
+    }
+    if (!brapiToken) {
+        console.error('BRAPI_TOKEN nao encontrado no .env');
         process.exit(1);
     }
 
@@ -192,7 +196,7 @@ async function main() {
         const ticker = a.ticker_name;
         process.stdout.write(`  [${i + 1}/${actives.length}] ${ticker}... `);
 
-        const valuation = await fetchValuation(ticker);
+        const valuation = await fetchValuation(ticker, brapiToken);
         if (!valuation) {
             console.log('falhou (sem dados de mercado), pulando');
             continue;
