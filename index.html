@@ -83,6 +83,7 @@
                     <h2 id="stock-name" class="text-sm md:text-base font-black text-slate-300 uppercase tracking-wide"></h2>
                     <p class="text-slate-500 text-[10px] uppercase tracking-[0.28em] font-black mt-2">Cotação Atual</p>
                     <span id="current-price" class="text-blue-400 font-mono text-4xl md:text-5xl font-black block mt-1"></span>
+                    <span id="price-date" class="text-slate-600 text-[10px] block mt-2"></span>
                 </div>
 
                 <!-- Resultados -->
@@ -206,7 +207,6 @@
     </div>
 
     <script>
-        const API_TOKEN = 'oFmq3TNueUU1ivaS2KbScJ';
         const DEFAULT_GROWTH = 10;
 
         // Estado da última análise para recálculo manual
@@ -274,47 +274,12 @@
             return Number.isFinite(n) ? n : fallback;
         }
 
-        function firstFinite(...values) {
-            for (const value of values) {
-                const n = Number(value);
-                if (Number.isFinite(n)) {
-                    return n;
-                }
-            }
-            return NaN;
-        }
-
         function formatCurrency(value) {
             return `R$ ${value.toFixed(2)}`;
         }
 
-        function buildTokenParam() {
-            return API_TOKEN ? `&token=${encodeURIComponent(API_TOKEN)}` : '';
-        }
-
-        function buildTokenQueryValue() {
-            return API_TOKEN ? `token=${encodeURIComponent(API_TOKEN)}` : '';
-        }
-
         function normalizeTickerInput(value) {
             return value.trim().toUpperCase().replace(/\s+/g, '');
-        }
-
-        function calculateAutoGrowth(stats) {
-            const quarterlyGrowth = toNumber(stats.earningsQuarterlyGrowth, NaN);
-            const roe = toNumber(stats.returnOnEquity, NaN);
-            let autoGrowth = DEFAULT_GROWTH;
-
-            if (Number.isFinite(quarterlyGrowth)) {
-                autoGrowth = quarterlyGrowth * 100;
-            } else if (Number.isFinite(roe)) {
-                autoGrowth = roe * 100 * 0.5;
-            }
-
-            if (autoGrowth > 25) autoGrowth = 25;
-            if (autoGrowth < 2) autoGrowth = 5;
-
-            return autoGrowth;
         }
 
         async function resolveTicker(query, signal) {
@@ -323,55 +288,34 @@
                 return typedTicker;
             }
 
-            const searchUrl = `https://brapi.dev/api/quote/list?search=${encodeURIComponent(query)}&limit=1${buildTokenParam()}`;
-            const response = await fetch(searchUrl, { signal });
-
+            const response = await fetch(`/api/search?q=${encodeURIComponent(query)}`, { signal });
             if (!response.ok) {
                 throw new Error(`Falha ao buscar ativo (${response.status}).`);
             }
 
             const data = await response.json();
-            const first = Array.isArray(data.stocks) ? data.stocks[0] : null;
-            if (!first || !first.stock) {
+            const first = Array.isArray(data.data) ? data.data[0] : null;
+            if (!first || !first.ticker_primary) {
                 throw new Error('Ativo não encontrado para o termo pesquisado.');
             }
 
-            return normalizeTickerInput(first.stock);
+            return normalizeTickerInput(first.ticker_primary);
         }
 
-        async function fetchQuoteWithFallback(ticker, signal) {
-            const tokenQuery = buildTokenQueryValue();
-            const urls = [
-                `https://brapi.dev/api/quote/${encodeURIComponent(ticker)}?dividends=true${tokenQuery ? `&${tokenQuery}` : ''}`,
-                `https://brapi.dev/api/quote/${encodeURIComponent(ticker)}${tokenQuery ? `?${tokenQuery}` : ''}`,
-                `https://brapi.dev/api/quote/${encodeURIComponent(ticker)}?fundamental=true&dividends=true${tokenQuery ? `&${tokenQuery}` : ''}`,
-                `https://brapi.dev/api/quote/${encodeURIComponent(ticker)}?fundamental=true${tokenQuery ? `&${tokenQuery}` : ''}`
-            ];
-
-            let lastError = null;
-
-            for (const url of urls) {
-                const response = await fetch(url, { signal });
-                if (response.ok) {
-                    return response.json();
-                }
-
-                if (response.status === 429) {
-                    throw new Error('Limite de consultas atingido. Aguarde alguns segundos e tente novamente.');
-                }
-
-                if (response.status === 401) {
-                    throw new Error('Token inválido ou sem permissão para este ativo.');
-                }
-
-                // Em 400/403/404 tentamos a próxima variação do endpoint.
-                lastError = new Error(`Falha na consulta (${response.status}).`);
-                if (response.status !== 400 && response.status !== 403 && response.status !== 404) {
-                    throw lastError;
-                }
+        async function fetchQuote(ticker, signal) {
+            const response = await fetch(`/api/quote?ticker=${encodeURIComponent(ticker)}`, { signal });
+            if (response.status === 404) {
+                throw new Error('Ativo não encontrado.');
             }
-
-            throw lastError || new Error('Falha na consulta do ativo.');
+            if (!response.ok) {
+                throw new Error(`Falha na consulta da cotação (${response.status}).`);
+            }
+            const data = await response.json();
+            const price = toNumber(data.close, NaN);
+            if (!Number.isFinite(price) || price <= 0) {
+                throw new Error('Preço de mercado indisponível para este ativo.');
+            }
+            return { price, tradeDate: data.trade_date || null };
         }
 
         async function fetchBolsaiFundamentals(ticker, signal) {
@@ -383,78 +327,6 @@
             } catch (err) {
                 return null;
             }
-        }
-
-        function extractValuationInputs(stock) {
-            const price = firstFinite(stock.regularMarketPrice, stock.close, stock.price);
-
-            let lpa = firstFinite(
-                stock.earningsPerShare,
-                stock.eps,
-                stock.trailingEps,
-                stock.defaultKeyStatistics?.earningsPerShare,
-                stock.defaultKeyStatistics?.trailingEps
-            );
-
-            const pe = firstFinite(
-                stock.priceEarnings,
-                stock.trailingPE,
-                stock.defaultKeyStatistics?.trailingPE
-            );
-
-            if ((!Number.isFinite(lpa) || lpa <= 0) && Number.isFinite(price) && price > 0 && Number.isFinite(pe) && pe > 0) {
-                lpa = price / pe;
-            }
-
-            const pb = firstFinite(
-                stock.priceToBook,
-                stock.defaultKeyStatistics?.priceToBook,
-                stock.priceToNav
-            );
-
-            let vpa = firstFinite(
-                stock.bookValue,
-                stock.defaultKeyStatistics?.bookValue,
-                stock.navPerShare
-            );
-
-            if ((!Number.isFinite(vpa) || vpa <= 0) && Number.isFinite(price) && price > 0 && Number.isFinite(pb) && pb > 0) {
-                vpa = price / pb;
-            }
-
-            let dy = firstFinite(
-                stock.dividendYield,
-                stock.defaultKeyStatistics?.yield,
-                stock.defaultKeyStatistics?.dividendYield,
-                stock.dividendYield12m
-            );
-
-            if (!Number.isFinite(dy) || dy <= 0) {
-                const annualDividend = firstFinite(stock.trailingAnnualDividendRate, stock.dividendRate);
-                if (Number.isFinite(annualDividend) && annualDividend > 0 && Number.isFinite(price) && price > 0) {
-                    dy = annualDividend / price;
-                }
-            }
-
-            if ((!Number.isFinite(dy) || dy <= 0) && stock.dividendsData?.cashDividends?.length && Number.isFinite(price) && price > 0) {
-                const twelveMonthsAgo = Date.now() - 365 * 24 * 60 * 60 * 1000;
-                const annualized = stock.dividendsData.cashDividends.reduce((sum, item) => {
-                    const rate = Number(item?.rate);
-                    const paymentTime = item?.paymentDate ? Date.parse(item.paymentDate) : NaN;
-                    if (!Number.isFinite(rate) || rate <= 0) return sum;
-                    if (Number.isFinite(paymentTime) && paymentTime < twelveMonthsAgo) return sum;
-                    return sum + rate;
-                }, 0);
-                if (annualized > 0) {
-                    dy = annualized / price;
-                }
-            }
-
-            if (Number.isFinite(dy) && dy > 1) {
-                dy = dy / 100;
-            }
-
-            return { price, lpa, vpa, pe, dy };
         }
 
         async function fetchData() {
@@ -483,27 +355,18 @@
 
             try {
                 const ticker = await resolveTicker(query, signal);
-                const [data, fundamentals] = await Promise.all([
-                    fetchQuoteWithFallback(ticker, signal),
+                const [quote, fundamentals] = await Promise.all([
+                    fetchQuote(ticker, signal),
                     fetchBolsaiFundamentals(ticker, signal)
                 ]);
 
-                if (!data.results || data.results.length === 0) throw new Error("Ativo não encontrado.");
+                const { price, tradeDate } = quote;
+                let lpa = fundamentals && Number.isFinite(fundamentals.lpa) ? fundamentals.lpa : NaN;
+                let vpa = fundamentals && Number.isFinite(fundamentals.vpa) && fundamentals.vpa > 0 ? fundamentals.vpa : NaN;
+                let pe  = fundamentals && Number.isFinite(fundamentals.pl) && fundamentals.pl > 0 ? fundamentals.pl : NaN;
+                // Sem fonte gratuita de dividend yield — preenchido manualmente no painel abaixo.
+                let dy = NaN;
 
-                const stock = data.results[0];
-                const stats = stock.defaultKeyStatistics || {};
-                let { price, lpa, vpa, pe, dy } = extractValuationInputs(stock);
-
-                // Dados fundamentalistas oficiais (DFP/ITR via Bolsai) têm prioridade sobre os derivados da brapi.
-                if (fundamentals) {
-                    if (Number.isFinite(fundamentals.lpa)) lpa = fundamentals.lpa;
-                    if (Number.isFinite(fundamentals.vpa) && fundamentals.vpa > 0) vpa = fundamentals.vpa;
-                    if (Number.isFinite(fundamentals.pl) && fundamentals.pl > 0) pe = fundamentals.pl;
-                }
-
-                if (!Number.isFinite(price) || price <= 0) {
-                    throw new Error('Preço de mercado indisponível para este ativo.');
-                }
                 const pl = Number.isFinite(pe) && pe > 0 ? pe : (lpa > 0 ? (price / lpa) : 0);
 
                 // Reseta hint de crescimento para nova análise
@@ -511,12 +374,16 @@
                 document.getElementById('growth-hint').textContent = 'Preenchido automaticamente';
                 document.getElementById('growth-hint').className = 'block mt-1 text-[10px] text-slate-500';
 
-                tickerInput.value = stock.symbol || ticker;
-                document.getElementById('stock-name').innerText = stock.longName || stock.shortName || stock.symbol || ticker;
+                tickerInput.value = ticker;
+                document.getElementById('stock-name').innerText = fundamentals?.corporate_name || ticker;
                 document.getElementById('current-price').innerText = formatCurrency(price);
+                const priceDateEl = document.getElementById('price-date');
+                if (priceDateEl) {
+                    priceDateEl.textContent = tradeDate ? `Fechamento de ${new Date(tradeDate + 'T00:00:00').toLocaleDateString('pt-BR')}` : '';
+                }
 
                 // Salva estado para recálculo manual
-                lastAnalysis = { price, lpa, vpa, pl, dy, ticker: stock.symbol || ticker };
+                lastAnalysis = { price, lpa, vpa, pl, dy, ticker };
 
                 calculateValuations(price, lpa, vpa, pl, dy);
                 document.getElementById('results').classList.remove('hidden');
@@ -533,7 +400,7 @@
                 const manualPanel = document.getElementById('manual-panel');
                 if (missingLpa || missingVpa || missingDy) {
                     const linkEl = document.getElementById('link-statusinvest');
-                    linkEl.href = `https://statusinvest.com.br/acoes/${encodeURIComponent((stock.symbol || ticker).toLowerCase())}`;
+                    linkEl.href = `https://statusinvest.com.br/acoes/${encodeURIComponent(ticker.toLowerCase())}`;
                     document.getElementById('manualLpa').value = '';
                     document.getElementById('manualVpa').value = '';
                     document.getElementById('manualDy').value  = '';
@@ -806,14 +673,10 @@
 
                 try {
                     const ctrl  = new AbortController();
-                    const data  = await fetchQuoteWithFallback(ticker, ctrl.signal);
-                    if (!data.results?.length) throw new Error('Sem resultado');
-
-                    const stock = data.results[0];
                     const saved = portfolio[ticker];
 
                     // Usa apenas o preço atualizado — fundamentos vêm do momento da análise
-                    const { price } = extractValuationInputs(stock);
+                    const { price } = await fetchQuote(ticker, ctrl.signal);
 
                     const graham = saved.graham != null ? saved.graham : NaN;
                     const bazin  = saved.bazin  != null ? saved.bazin  : NaN;

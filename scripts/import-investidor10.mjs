@@ -68,100 +68,46 @@ async function fetchActivesFromInvestidor10(walletUrl) {
     return found;
 }
 
-function firstFinite(...values) {
-    for (const v of values) {
-        const n = Number(v);
-        if (Number.isFinite(n)) return n;
-    }
-    return NaN;
-}
-
-function extractValuationInputs(stock) {
-    const price = firstFinite(stock.regularMarketPrice, stock.close, stock.price);
-
-    let lpa = firstFinite(
-        stock.earningsPerShare, stock.eps, stock.trailingEps,
-        stock.defaultKeyStatistics?.earningsPerShare, stock.defaultKeyStatistics?.trailingEps
-    );
-    const pe = firstFinite(stock.priceEarnings, stock.trailingPE, stock.defaultKeyStatistics?.trailingPE);
-    if ((!Number.isFinite(lpa) || lpa <= 0) && price > 0 && pe > 0) lpa = price / pe;
-
-    const pb = firstFinite(stock.priceToBook, stock.defaultKeyStatistics?.priceToBook, stock.priceToNav);
-    let vpa = firstFinite(stock.bookValue, stock.defaultKeyStatistics?.bookValue, stock.navPerShare);
-    if ((!Number.isFinite(vpa) || vpa <= 0) && price > 0 && pb > 0) vpa = price / pb;
-
-    let dy = firstFinite(
-        stock.dividendYield, stock.defaultKeyStatistics?.yield,
-        stock.defaultKeyStatistics?.dividendYield, stock.dividendYield12m
-    );
-    if (!Number.isFinite(dy) || dy <= 0) {
-        const annualDividend = firstFinite(stock.trailingAnnualDividendRate, stock.dividendRate);
-        if (annualDividend > 0 && price > 0) dy = annualDividend / price;
-    }
-    if (Number.isFinite(dy) && dy > 1) dy = dy / 100;
-
-    return { price, lpa, vpa, pe, dy };
-}
-
-async function fetchQuoteWithFallback(ticker, brapiToken) {
-    const urls = [
-        `https://brapi.dev/api/quote/${encodeURIComponent(ticker)}?dividends=true&token=${brapiToken}`,
-        `https://brapi.dev/api/quote/${encodeURIComponent(ticker)}?token=${brapiToken}`,
-        `https://brapi.dev/api/quote/${encodeURIComponent(ticker)}?fundamental=true&dividends=true&token=${brapiToken}`,
-        `https://brapi.dev/api/quote/${encodeURIComponent(ticker)}?fundamental=true&token=${brapiToken}`
-    ];
-
-    for (const url of urls) {
-        const res = await fetch(url).catch(() => null);
-        if (res && res.ok) return res.json();
-        if (res && (res.status === 400 || res.status === 403 || res.status === 404)) continue;
-        return null;
-    }
-    return null;
-}
-
-async function fetchValuation(ticker, brapiToken) {
+async function fetchValuation(ticker) {
+    const quoteUrl = `${FUNDAMENTALS_BASE}/api/quote?ticker=${encodeURIComponent(ticker)}`;
     const fundamentalsUrl = `${FUNDAMENTALS_BASE}/api/fundamentals?ticker=${encodeURIComponent(ticker)}`;
 
-    const [data, fundRes] = await Promise.all([
-        fetchQuoteWithFallback(ticker, brapiToken),
+    const [quoteRes, fundRes] = await Promise.all([
+        fetch(quoteUrl).catch(() => null),
         fetch(fundamentalsUrl).catch(() => null)
     ]);
 
-    if (!data) return null;
-    const stock = data.results?.[0];
-    if (!stock) return null;
+    if (!quoteRes || !quoteRes.ok) return null;
+    const quote = await quoteRes.json();
+    const price = Number(quote.close);
+    if (!Number.isFinite(price) || price <= 0) return null;
 
-    let { price, lpa, vpa, pe, dy } = extractValuationInputs(stock);
-
+    let lpa = NaN, vpa = NaN, pl = NaN;
     if (fundRes && fundRes.ok) {
         const fundamentals = await fundRes.json().catch(() => null);
         if (fundamentals && !fundamentals.error) {
             if (Number.isFinite(fundamentals.lpa)) lpa = fundamentals.lpa;
             if (Number.isFinite(fundamentals.vpa) && fundamentals.vpa > 0) vpa = fundamentals.vpa;
-            if (Number.isFinite(fundamentals.pl) && fundamentals.pl > 0) pe = fundamentals.pl;
+            if (Number.isFinite(fundamentals.pl) && fundamentals.pl > 0) pl = fundamentals.pl;
         }
     }
+    if (!Number.isFinite(pl) && lpa > 0) pl = price / lpa;
 
-    if (!Number.isFinite(price) || price <= 0) return null;
-    const pl = Number.isFinite(pe) && pe > 0 ? pe : (lpa > 0 ? price / lpa : 0);
-
+    // Sem fonte gratuita de dividend yield na Bolsai (endpoint /dividends exige plano Pro) — Bazin fica indisponivel.
     const roe = (Number.isFinite(lpa) && Number.isFinite(vpa) && vpa !== 0) ? lpa / vpa : NaN;
     const growth = Number.isFinite(roe) ? Math.min(Math.max(roe * 100 * 0.5, 2), 25) : DEFAULT_GROWTH;
 
     const graham = (lpa > 0 && vpa > 0) ? Math.sqrt(22.5 * lpa * vpa) : null;
-    const dyOk = Number.isFinite(dy) && dy > 0;
-    const bazin = dyOk ? (price * dy) / 0.06 : null;
-    const lynch = pl > 0 ? (growth + (dyOk ? dy * 100 : 0)) / pl : null;
+    const lynch = pl > 0 ? growth / pl : null;
 
     return {
         vpa: vpa > 0 ? vpa : null,
-        dy: dyOk ? dy : null,
+        dy: null,
         growth,
         lpa: Number.isFinite(lpa) ? lpa : null,
         pl: Number.isFinite(pl) && pl > 0 ? pl : null,
         graham,
-        bazin,
+        bazin: null,
         lynch,
         roe: Number.isFinite(roe) ? roe : null
     };
@@ -172,13 +118,8 @@ function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 async function main() {
     const env = loadEnv();
     const walletUrl = env.LINK_CARTEIRA_IV10;
-    const brapiToken = env.BRAPI_TOKEN;
     if (!walletUrl) {
         console.error('LINK_CARTEIRA_IV10 nao encontrado no .env');
-        process.exit(1);
-    }
-    if (!brapiToken) {
-        console.error('BRAPI_TOKEN nao encontrado no .env');
         process.exit(1);
     }
 
@@ -196,7 +137,7 @@ async function main() {
         const ticker = a.ticker_name;
         process.stdout.write(`  [${i + 1}/${actives.length}] ${ticker}... `);
 
-        const valuation = await fetchValuation(ticker, brapiToken);
+        const valuation = await fetchValuation(ticker);
         if (!valuation) {
             console.log('falhou (sem dados de mercado), pulando');
             continue;
