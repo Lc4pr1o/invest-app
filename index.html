@@ -367,6 +367,17 @@
             throw lastError || new Error('Falha na consulta do ativo.');
         }
 
+        async function fetchBolsaiFundamentals(ticker, signal) {
+            try {
+                const response = await fetch(`/api/fundamentals?ticker=${encodeURIComponent(ticker)}`, { signal });
+                if (!response.ok) return null;
+                const data = await response.json();
+                return data && !data.error ? data : null;
+            } catch (err) {
+                return null;
+            }
+        }
+
         function extractValuationInputs(stock) {
             const price = firstFinite(stock.regularMarketPrice, stock.close, stock.price);
 
@@ -465,13 +476,23 @@
 
             try {
                 const ticker = await resolveTicker(query, signal);
-                const data = await fetchQuoteWithFallback(ticker, signal);
+                const [data, fundamentals] = await Promise.all([
+                    fetchQuoteWithFallback(ticker, signal),
+                    fetchBolsaiFundamentals(ticker, signal)
+                ]);
 
                 if (!data.results || data.results.length === 0) throw new Error("Ativo não encontrado.");
 
                 const stock = data.results[0];
                 const stats = stock.defaultKeyStatistics || {};
-                const { price, lpa, vpa, pe, dy } = extractValuationInputs(stock);
+                let { price, lpa, vpa, pe, dy } = extractValuationInputs(stock);
+
+                // Dados fundamentalistas oficiais (DFP/ITR via Bolsai) têm prioridade sobre os derivados da brapi.
+                if (fundamentals) {
+                    if (Number.isFinite(fundamentals.lpa)) lpa = fundamentals.lpa;
+                    if (Number.isFinite(fundamentals.vpa) && fundamentals.vpa > 0) vpa = fundamentals.vpa;
+                    if (Number.isFinite(fundamentals.pl) && fundamentals.pl > 0) pe = fundamentals.pl;
+                }
 
                 if (!Number.isFinite(price) || price <= 0) {
                     throw new Error('Preço de mercado indisponível para este ativo.');
