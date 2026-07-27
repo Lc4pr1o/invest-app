@@ -17,7 +17,8 @@ for (const line of fs.readFileSync(envPath, 'utf8').split('\n')) {
 const routes = {
     '/api/fundamentals': (await import('../api/fundamentals.js')).default,
     '/api/quote': (await import('../api/quote.js')).default,
-    '/api/search': (await import('../api/search.js')).default
+    '/api/search': (await import('../api/search.js')).default,
+    '/api/dividends': (await import('../api/dividends.js')).default
 };
 
 const server = http.createServer(async (req, res) => {

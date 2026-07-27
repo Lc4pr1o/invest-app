@@ -329,6 +329,17 @@
             }
         }
 
+        async function fetchDividendYield(ticker, signal) {
+            try {
+                const response = await fetch(`/api/dividends?ticker=${encodeURIComponent(ticker)}`, { signal });
+                if (!response.ok) return null;
+                const data = await response.json();
+                return data && Number.isFinite(data.dy) && data.dy > 0 ? data.dy : null;
+            } catch (err) {
+                return null;
+            }
+        }
+
         async function fetchData() {
             const query = tickerInput.value.trim();
 
@@ -355,17 +366,18 @@
 
             try {
                 const ticker = await resolveTicker(query, signal);
-                const [quote, fundamentals] = await Promise.all([
+                const [quote, fundamentals, dividendYield] = await Promise.all([
                     fetchQuote(ticker, signal),
-                    fetchBolsaiFundamentals(ticker, signal)
+                    fetchBolsaiFundamentals(ticker, signal),
+                    fetchDividendYield(ticker, signal)
                 ]);
 
                 const { price, tradeDate } = quote;
                 let lpa = fundamentals && Number.isFinite(fundamentals.lpa) ? fundamentals.lpa : NaN;
                 let vpa = fundamentals && Number.isFinite(fundamentals.vpa) && fundamentals.vpa > 0 ? fundamentals.vpa : NaN;
                 let pe  = fundamentals && Number.isFinite(fundamentals.pl) && fundamentals.pl > 0 ? fundamentals.pl : NaN;
-                // Sem fonte gratuita de dividend yield — preenchido manualmente no painel abaixo.
-                let dy = NaN;
+                // DY vem do Fundamentus (nem brapi nem Bolsai liberam isso no plano gratuito).
+                let dy = Number.isFinite(dividendYield) ? dividendYield : NaN;
 
                 const pl = Number.isFinite(pe) && pe > 0 ? pe : (lpa > 0 ? (price / lpa) : 0);
 

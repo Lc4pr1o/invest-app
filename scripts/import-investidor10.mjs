@@ -71,10 +71,12 @@ async function fetchActivesFromInvestidor10(walletUrl) {
 async function fetchValuation(ticker) {
     const quoteUrl = `${FUNDAMENTALS_BASE}/api/quote?ticker=${encodeURIComponent(ticker)}`;
     const fundamentalsUrl = `${FUNDAMENTALS_BASE}/api/fundamentals?ticker=${encodeURIComponent(ticker)}`;
+    const dividendsUrl = `${FUNDAMENTALS_BASE}/api/dividends?ticker=${encodeURIComponent(ticker)}`;
 
-    const [quoteRes, fundRes] = await Promise.all([
+    const [quoteRes, fundRes, divRes] = await Promise.all([
         fetch(quoteUrl).catch(() => null),
-        fetch(fundamentalsUrl).catch(() => null)
+        fetch(fundamentalsUrl).catch(() => null),
+        fetch(dividendsUrl).catch(() => null)
     ]);
 
     if (!quoteRes || !quoteRes.ok) return null;
@@ -93,21 +95,28 @@ async function fetchValuation(ticker) {
     }
     if (!Number.isFinite(pl) && lpa > 0) pl = price / lpa;
 
-    // Sem fonte gratuita de dividend yield na Bolsai (endpoint /dividends exige plano Pro) — Bazin fica indisponivel.
+    let dy = NaN;
+    if (divRes && divRes.ok) {
+        const dividends = await divRes.json().catch(() => null);
+        if (dividends && Number.isFinite(dividends.dy) && dividends.dy > 0) dy = dividends.dy;
+    }
+
     const roe = (Number.isFinite(lpa) && Number.isFinite(vpa) && vpa !== 0) ? lpa / vpa : NaN;
     const growth = Number.isFinite(roe) ? Math.min(Math.max(roe * 100 * 0.5, 2), 25) : DEFAULT_GROWTH;
 
     const graham = (lpa > 0 && vpa > 0) ? Math.sqrt(22.5 * lpa * vpa) : null;
-    const lynch = pl > 0 ? growth / pl : null;
+    const dyOk = Number.isFinite(dy) && dy > 0;
+    const bazin = dyOk ? (price * dy) / 0.06 : null;
+    const lynch = pl > 0 ? (growth + (dyOk ? dy * 100 : 0)) / pl : null;
 
     return {
         vpa: vpa > 0 ? vpa : null,
-        dy: null,
+        dy: dyOk ? dy : null,
         growth,
         lpa: Number.isFinite(lpa) ? lpa : null,
         pl: Number.isFinite(pl) && pl > 0 ? pl : null,
         graham,
-        bazin: null,
+        bazin,
         lynch,
         roe: Number.isFinite(roe) ? roe : null
     };
