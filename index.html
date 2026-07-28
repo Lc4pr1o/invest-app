@@ -63,7 +63,7 @@
                         <input type="text" id="ticker" placeholder="PETR4" autocomplete="off" class="w-full bg-slate-900/70 border border-slate-600 rounded-2xl pl-11 pr-4 py-3 text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none uppercase font-bold text-lg transition-shadow">
                     </div>
                 </div>
-                <div class="w-full lg:w-56">
+                <div class="hidden w-full lg:w-56">
                     <label class="block text-[11px] uppercase font-black text-slate-500 mb-2 tracking-[0.2em]">Crescimento</label>
                     <input type="hidden" id="userGrowth" value="10" step="0.01">
                     <div id="growth-display" class="w-full bg-slate-900/70 border border-slate-600 rounded-2xl px-4 py-3 text-blue-300 font-black text-lg font-mono">
@@ -137,7 +137,7 @@
                             <span class="flex items-center justify-center w-7 h-7 rounded-lg bg-green-500/10 text-green-400 shrink-0">
                                 <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><circle cx="12" cy="12" r="4.5"></circle><circle cx="12" cy="12" r="0.5" fill="currentColor"></circle></svg>
                             </span>
-                            <span class="text-slate-400 text-[11px] font-black uppercase tracking-[0.14em]">Preco Justo (Graham)</span>
+                            <span id="label-graham" class="text-slate-400 text-[11px] font-black uppercase tracking-[0.14em]">Preco Justo (Graham)</span>
                         </div>
                         <span id="res-graham" class="text-2xl md:text-3xl block font-black text-white font-mono">-</span>
                         <div id="badge-graham" class="mt-3 inline-block text-[10px] font-black px-3 py-1 rounded-full uppercase border"></div>
@@ -148,23 +148,24 @@
                             <span class="flex items-center justify-center w-7 h-7 rounded-lg bg-blue-500/10 text-blue-400 shrink-0">
                                 <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l8 4v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6l8-4z"></path></svg>
                             </span>
-                            <span class="text-slate-400 text-[11px] font-black uppercase tracking-[0.14em]">Preco Teto (Bazin 6%)</span>
+                            <span id="label-bazin" class="text-slate-400 text-[11px] font-black uppercase tracking-[0.14em]">Preco Teto (Bazin 6%)</span>
                         </div>
                         <span id="res-bazin" class="text-2xl md:text-3xl block font-black text-white font-mono">-</span>
                         <div id="badge-bazin" class="mt-3 inline-block text-[10px] font-black px-3 py-1 rounded-full uppercase border"></div>
                     </div>
 
-                    <div class="tile transition-transform duration-200 px-5 md:px-6 py-5">
+                    <div id="tile-lynch" class="tile transition-transform duration-200 px-5 md:px-6 py-5">
                         <div class="flex items-center gap-2 mb-3">
                             <span class="flex items-center justify-center w-7 h-7 rounded-lg bg-purple-500/10 text-purple-400 shrink-0">
                                 <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l6-6 4 4 8-8"></path><path d="M15 7h6v6"></path></svg>
                             </span>
-                            <span class="text-slate-400 text-[11px] font-black uppercase tracking-[0.14em]">Score de Lynch (&gt; 1.5)</span>
+                            <span id="label-lynch" class="text-slate-400 text-[11px] font-black uppercase tracking-[0.14em]">Score de Lynch (&gt; 1.5)</span>
                         </div>
                         <span id="res-lynch" class="text-2xl md:text-3xl block font-black text-white font-mono">-</span>
                         <div id="badge-lynch" class="mt-3 inline-block text-[10px] font-black px-3 py-1 rounded-full uppercase border"></div>
                     </div>
                 </div>
+                <p id="fii-type-note" class="hidden text-[11px] text-slate-500 px-5 md:px-6 pb-4 -mt-1"></p>
             </div>
 
             <!-- Botão salvar na carteira -->
@@ -433,6 +434,77 @@
             }
         }
 
+        // Convencao B3: tickers terminados em "11" sao FIIs (ou units/BDRs, minoria).
+        function looksLikeFii(ticker) {
+            return /11$/.test(ticker);
+        }
+
+        function resetResultLabelsToStock() {
+            document.getElementById('label-graham').textContent = 'Preco Justo (Graham)';
+            document.getElementById('label-bazin').textContent = 'Preco Teto (Bazin 6%)';
+            document.getElementById('label-lynch').textContent = 'Score de Lynch (> 1.5)';
+        }
+
+        async function renderFiiResults(ticker, signal) {
+            const [fii, cdi] = await Promise.all([
+                fetchFiiData(ticker, signal),
+                fetchCdi()
+            ]);
+
+            const { price, fundType } = fii;
+            const dy = Number.isFinite(fii.dy) ? fii.dy : NaN;
+
+            // Papel: preco justo via P/VP. Tijolo: P/VP perde relevancia, usa Gordon
+            // (dividendos descontados). Bazin adaptado para FII exige DY minimo de 10% a.a.
+            const fairPrice = fundType === 'tijolo' ? gordonFairPrice(price, dy) : (fii.pvp > 0 ? price / fii.pvp : null);
+            const bazin = (dy > 0) ? (price * dy) / 0.10 : null;
+
+            tickerInput.value = ticker;
+            const typeLabel = fundType === 'papel' ? 'FII de Papel' : fundType === 'tijolo' ? 'FII de Tijolo' : 'FII';
+            document.getElementById('stock-name').innerText = `${ticker} · ${typeLabel}`;
+            document.getElementById('current-price').innerText = formatCurrency(price);
+            const priceDateEl = document.getElementById('price-date');
+            if (priceDateEl && priceDateEl.lastElementChild && priceDateEl.lastElementChild.nextSibling) {
+                priceDateEl.lastElementChild.nextSibling.textContent = '';
+            }
+
+            document.getElementById('label-graham').textContent = fundType === 'tijolo' ? 'Preço Justo (Gordon)' : 'Preço Justo (P/VP)';
+            document.getElementById('label-bazin').textContent = 'Preço Teto (Bazin 10%)';
+            document.getElementById('label-lynch').textContent = 'Yield vs CDI + Spread';
+
+            updateCard('res-graham', 'badge-graham', fairPrice, price, 'price');
+            updateCard('res-bazin', 'badge-bazin', bazin, price, 'price');
+
+            const lynchEl = document.getElementById('res-lynch');
+            if (Number.isFinite(dy) && Number.isFinite(cdi)) {
+                const spreadPp = (dy - cdi) * 100;
+                lynchEl.innerText = `${spreadPp >= 0 ? '+' : ''}${spreadPp.toFixed(1)} p.p.`;
+                const badgeEl = document.getElementById('badge-lynch');
+                if (dy > cdi + CDI_SPREAD) {
+                    badgeEl.innerText = 'Acima do CDI';
+                    badgeEl.className = 'mt-3 inline-block text-[10px] font-black px-3 py-1 rounded-full bg-green-500/10 text-green-400 border-green-500/50 uppercase';
+                } else {
+                    badgeEl.innerText = 'Abaixo do CDI';
+                    badgeEl.className = 'mt-3 inline-block text-[10px] font-black px-3 py-1 rounded-full bg-red-500/10 text-red-400 border-red-500/50 uppercase';
+                }
+            } else {
+                lynchEl.innerText = 'N/A';
+                setUnavailableBadge('badge-lynch');
+            }
+
+            const fiiNote = document.getElementById('fii-type-note');
+            const cdiTxt = Number.isFinite(cdi) ? `${(cdi * 100).toFixed(2)}%` : 'indisponível';
+            fiiNote.textContent = fundType
+                ? `Classificado como Fundo de ${fundType === 'papel' ? 'Papel' : fundType === 'tijolo' ? 'Tijolo' : 'tipo misto'} (via Investidor10). CDI atual: ${cdiTxt}. Cap Rate e Custo de Reposição não são calculados automaticamente (exigem dados não disponíveis nas fontes gratuitas usadas).`
+                : `Não foi possível classificar o tipo de fundo. CDI atual: ${cdiTxt}.`;
+            fiiNote.classList.remove('hidden');
+
+            lastAnalysis = { type: 'fii', fundType, price, fairPrice, bazin, dy, cdi, ticker };
+
+            document.getElementById('results').classList.remove('hidden');
+            document.getElementById('results').classList.add('animate-fade-in-up');
+        }
+
         async function fetchData() {
             const query = tickerInput.value.trim();
 
@@ -452,6 +524,7 @@
             clearFeedback();
             document.getElementById('results').classList.add('hidden');
             document.getElementById('manual-panel').classList.add('hidden');
+            document.getElementById('fii-type-note').classList.add('hidden');
 
             statusEl.classList.remove('hidden');
             analyzeBtn.disabled = true;
@@ -459,6 +532,14 @@
 
             try {
                 const ticker = await resolveTicker(query, signal);
+
+                if (looksLikeFii(ticker)) {
+                    await renderFiiResults(ticker, signal);
+                    showFeedback('Análise de FII concluída.', 'success');
+                    return;
+                }
+
+                resetResultLabelsToStock();
                 const [quote, fundamentals, dividendYield] = await Promise.all([
                     fetchQuote(ticker, signal),
                     fetchBolsaiFundamentals(ticker, signal),
@@ -731,6 +812,23 @@
 
         function addToPortfolio() {
             if (!lastAnalysis) return;
+
+            if (lastAnalysis.type === 'fii') {
+                const { ticker, fundType } = lastAnalysis;
+                const portfolio = loadPortfolio();
+                // Preco justo/Bazin/CDI sao recalculados ao vivo na hora de analisar a
+                // carteira (fetchFiiData), entao so precisamos guardar o tipo aqui.
+                portfolio[ticker] = { type: 'fii', fundType: fundType || null };
+                savePortfolioToStorage(portfolio);
+                renderPortfolioChips();
+                if (portfolioAuthed) {
+                    showFeedback(`${ticker} salvo na carteira.`, 'success');
+                } else {
+                    showFeedback(`${ticker} salvo só neste navegador — faça login em "Minha Carteira" para sincronizar com o servidor.`, 'info');
+                }
+                return;
+            }
+
             const { ticker, lpa, vpa, pl, dy, price } = lastAnalysis;
             const growth = toNumber(growthInput.value, DEFAULT_GROWTH);
 
@@ -841,26 +939,56 @@
             return                 { label: '🔴 Caro',     cls: 'bg-red-500/20 text-red-400 border-red-500/40' };
         }
 
-        // FII nao tem Graham/Lynch (nao ha LPA) -- usa preco justo via P/VP + Bazin, 2 criterios.
-        function fiiSignal(price, fairPrice, bazin) {
+        // FII nao tem Graham/Lynch (nao ha LPA) -- usa preco justo (P/VP ou Gordon,
+        // conforme o tipo) + Bazin a 10% + Yield vs CDI+spread quando disponivel.
+        const CDI_SPREAD = 0.02; // spread minimo exigido sobre o CDI (1,5% a 3% sugerido no material)
+
+        function fiiSignal(price, fairPrice, bazin, dy, cdi) {
             const belowFair = Number.isFinite(fairPrice) && price < fairPrice;
             const belowBazin = Number.isFinite(bazin) && price < bazin;
             const hasFair = Number.isFinite(fairPrice);
             const hasBazin = Number.isFinite(bazin);
+            const hasYield = Number.isFinite(dy) && Number.isFinite(cdi);
+            const yieldOk = hasYield && dy > cdi + CDI_SPREAD;
 
-            if (!hasFair && !hasBazin) return { label: 'Sem dados', cls: 'bg-slate-500/20 text-slate-400 border-slate-500/30' };
-            if ((!hasFair || belowFair) && (!hasBazin || belowBazin))
-                return { label: '🟢 Comprar', cls: 'bg-green-500/20 text-green-400 border-green-500/40' };
+            if (!hasFair && !hasBazin && !hasYield) return { label: 'Sem dados', cls: 'bg-slate-500/20 text-slate-400 border-slate-500/30' };
 
-            const hits = [belowFair && hasFair, belowBazin && hasBazin].filter(Boolean).length;
-            if (hits === 1) return { label: '🟡 Parcial', cls: 'bg-yellow-500/20 text-yellow-300 border-yellow-500/40' };
+            const criteria = [belowFair && hasFair, belowBazin && hasBazin];
+            if (hasYield) criteria.push(yieldOk);
+            const hits = criteria.filter(Boolean).length;
+
+            if (hits === criteria.length) return { label: '🟢 Comprar', cls: 'bg-green-500/20 text-green-400 border-green-500/40' };
+            if (hits >= Math.ceil(criteria.length / 2)) return { label: '🟡 Parcial', cls: 'bg-yellow-500/20 text-yellow-300 border-yellow-500/40' };
             return { label: '🔴 Caro', cls: 'bg-red-500/20 text-red-400 border-red-500/40' };
         }
 
         function rowSignal(row) {
             return row.type === 'fii'
-                ? fiiSignal(row.price, row.fairPrice, row.bazin)
+                ? fiiSignal(row.price, row.fairPrice, row.bazin, row.dy, row.cdi)
                 : portfolioSignal(row.price, row.fairPrice, row.bazin, row.lynch);
+        }
+
+        let cdiCache = null;
+        async function fetchCdi() {
+            if (cdiCache !== null) return cdiCache;
+            try {
+                const res = await fetch('/api/cdi');
+                if (!res.ok) return null;
+                const data = await res.json();
+                cdiCache = Number.isFinite(data.cdi) ? data.cdi : null;
+            } catch {
+                cdiCache = null;
+            }
+            return cdiCache;
+        }
+
+        // Modelo de Gordon: preco justo = D1 / (k - g). D1 estimado via DY anualizado
+        // atual x preco. k = taxa de desconto exigida, g = crescimento na perpetuidade
+        // (proxy de inflacao contratual). Valores default conforme sugeridos no material.
+        function gordonFairPrice(price, dy, k = 0.10, g = 0.04) {
+            if (!(dy > 0) || !(price > 0) || k <= g) return null;
+            const d1 = price * dy;
+            return d1 / (k - g);
         }
 
         // Margem de segurança media: quanto o preco atual esta abaixo do preco justo
@@ -917,10 +1045,10 @@
                     const avgPrice = Number.isFinite(saved.avgPrice) ? saved.avgPrice : null;
 
                     if (type === 'fii') {
-                        const fii = await fetchFiiData(ticker, ctrl.signal);
-                        const fairPrice = (fii.pvp > 0) ? fii.price / fii.pvp : null;
-                        const bazin = (fii.dy > 0) ? (fii.price * fii.dy) / 0.06 : null;
-                        rows.push({ ticker, type, price: fii.price, fairPrice, bazin, lynch: NaN, roe: NaN, quantity, avgPrice, margin: computeMargin(fairPrice, bazin, fii.price) });
+                        const [fii, cdi] = await Promise.all([fetchFiiData(ticker, ctrl.signal), fetchCdi()]);
+                        const fairPrice = fii.fundType === 'tijolo' ? gordonFairPrice(fii.price, fii.dy) : (fii.pvp > 0 ? fii.price / fii.pvp : null);
+                        const bazin = (fii.dy > 0) ? (fii.price * fii.dy) / 0.10 : null;
+                        rows.push({ ticker, type, price: fii.price, fairPrice, bazin, lynch: NaN, roe: NaN, quantity, avgPrice, fundType: fii.fundType, dy: fii.dy, cdi, margin: computeMargin(fairPrice, bazin, fii.price) });
                     } else {
                         // Usa apenas o preço atualizado — fundamentos vêm do momento da análise
                         const { price } = await fetchQuote(ticker, ctrl.signal);
@@ -953,9 +1081,10 @@
                 const tr = document.createElement('tr');
                 tr.className = 'hover:bg-white/[0.04] transition-colors cursor-pointer' + (isTop ? ' bg-emerald-500/[0.06]' : '');
                 tr.dataset.type = r.type;
+                tr.dataset.fundType = r.fundType || '';
                 tr.onclick = () => { tickerInput.value = r.ticker; fetchData(); };
                 tr.innerHTML = `
-                    <td class="px-4 py-4 font-black text-white text-base">${isTop ? '🏆 ' : ''}${r.ticker}${r.type === 'fii' ? ' <span class="text-[9px] text-purple-400 font-black align-top">FII</span>' : ''}</td>
+                    <td class="px-4 py-4 font-black text-white text-base">${isTop ? '🏆 ' : ''}${r.ticker}${r.type === 'fii' ? ` <span class="text-[9px] text-purple-400 font-black align-top">${r.fundType === 'papel' ? 'PAPEL' : r.fundType === 'tijolo' ? 'TIJOLO' : 'FII'}</span>` : ''}</td>
                     <td class="px-3 py-4 text-right font-mono text-blue-300 leading-tight">${priceCell(r.price)}</td>
                     <td class="px-3 py-4 text-right font-mono leading-tight ${colorP(r.fairPrice, r.price)}">${fmtP(r.fairPrice)}</td>
                     <td class="px-3 py-4 text-right font-mono leading-tight ${colorP(r.bazin, r.price)}">${fmtP(r.bazin)}</td>
@@ -1053,7 +1182,7 @@
                 const sig = rowSignal(row);
                 const tr = document.createElement('tr');
                 tr.innerHTML = `
-                    <td class="px-4 py-4 font-black text-white text-base">${row.ticker}${row.type === 'fii' ? ' <span class="text-[9px] text-purple-400 font-black align-top">FII</span>' : ''}</td>
+                    <td class="px-4 py-4 font-black text-white text-base">${row.ticker}${row.type === 'fii' ? ` <span class="text-[9px] text-purple-400 font-black align-top">${row.fundType === 'papel' ? 'PAPEL' : row.fundType === 'tijolo' ? 'TIJOLO' : 'FII'}</span>` : ''}</td>
                     <td class="px-3 py-4 text-right font-mono text-blue-300 leading-tight">${fmtP(row.price)}</td>
                     <td class="px-3 py-4 text-right font-mono leading-tight ${Number.isFinite(row.fairPrice) && row.price < row.fairPrice ? 'text-green-400' : 'text-slate-300'}">${fmtP(row.fairPrice)}</td>
                     <td class="px-3 py-4 text-right font-mono leading-tight ${Number.isFinite(row.bazin) && row.price < row.bazin ? 'text-green-400' : 'text-slate-300'}">${fmtP(row.bazin)}</td>
@@ -1087,8 +1216,9 @@
                     const fairPrice = parseBrazilianCurrency(tds[2]?.textContent);
                     const bazin = parseBrazilianCurrency(tds[3]?.textContent);
                     return {
-                        ticker: tds[0]?.textContent?.replace('🏆', '').replace('FII', '').trim(),
+                        ticker: tds[0]?.textContent?.replace(/🏆|PAPEL|TIJOLO|FII/g, '').trim(),
                         type: tr.dataset.type === 'fii' ? 'fii' : 'stock',
+                        fundType: tr.dataset.fundType || null,
                         price,
                         fairPrice,
                         bazin,

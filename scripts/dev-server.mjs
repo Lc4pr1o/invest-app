@@ -20,6 +20,7 @@ const routes = {
     '/api/search': (await import('../api/search.js')).default,
     '/api/dividends': (await import('../api/dividends.js')).default,
     '/api/fii': (await import('../api/fii.js')).default,
+    '/api/cdi': (await import('../api/cdi.js')).default,
     '/api/login': (await import('../api/login.js')).default,
     '/api/portfolio': (await import('../api/portfolio.js')).default
 };

@@ -1,7 +1,25 @@
-// Vercel Serverless Function: proxy para dados de FII via Fundamentus.
-// Um FII nao tem LPA/VPA (nao e uma empresa com balanco no formato DFP/ITR),
-// entao usamos P/VP (preco vs valor patrimonial por cota) como equivalente ao
-// "preco justo" do Graham, e o mesmo indicador Div. Yield para o Bazin.
+// Vercel Serverless Function: proxy para dados de FII via Fundamentus + classificacao
+// Papel/Tijolo via Investidor10 (pagina publica, sem sessao necessaria).
+// Um FII nao tem LPA/VPA (nao e uma empresa com balanco no formato DFP/ITR); a
+// metodologia de valuation depende do tipo:
+// - Papel (recebiveis/CRIs): preco justo via P/VP, teto via Bazin a 10% a.a.
+// - Tijolo (imoveis fisicos): preco justo via Gordon (dividendos descontados),
+//   teto via Bazin a 10% a.a.
+
+async function fetchFundType(ticker) {
+    try {
+        const res = await fetch(`https://investidor10.com.br/fiis/${encodeURIComponent(ticker.toLowerCase())}/`, {
+            headers: { 'User-Agent': 'Mozilla/5.0 (compatible; InvestApp/1.0)' }
+        });
+        if (!res.ok) return null;
+        const html = await res.text();
+        if (html.includes('Fundo de Papel')) return 'papel';
+        if (html.includes('Fundo de Tijolo')) return 'tijolo';
+        return 'hibrido';
+    } catch {
+        return null;
+    }
+}
 
 export default async function handler(req, res) {
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -25,9 +43,12 @@ export default async function handler(req, res) {
     }
 
     try {
-        const upstream = await fetch(`https://www.fundamentus.com.br/detalhes.php?papel=${encodeURIComponent(ticker)}`, {
-            headers: { 'User-Agent': 'Mozilla/5.0 (compatible; InvestApp/1.0)' }
-        });
+        const [upstream, fundType] = await Promise.all([
+            fetch(`https://www.fundamentus.com.br/detalhes.php?papel=${encodeURIComponent(ticker)}`, {
+                headers: { 'User-Agent': 'Mozilla/5.0 (compatible; InvestApp/1.0)' }
+            }),
+            fetchFundType(ticker)
+        ]);
 
         if (!upstream.ok) {
             res.status(502).json({ error: 'Falha ao consultar o Fundamentus.' });
@@ -58,7 +79,8 @@ export default async function handler(req, res) {
             ticker,
             price,
             pvp: Number.isFinite(pvp) && pvp > 0 ? pvp : null,
-            dy: Number.isFinite(dyPct) ? dyPct / 100 : null
+            dy: Number.isFinite(dyPct) ? dyPct / 100 : null,
+            fundType
         });
     } catch (err) {
         res.status(502).json({ error: 'Falha ao consultar o Fundamentus.' });

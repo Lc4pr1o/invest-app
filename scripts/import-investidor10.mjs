@@ -139,18 +139,29 @@ async function fetchValuation(ticker) {
     };
 }
 
+// Gordon: preco justo = D1 / (k - g), usado para FIIs de Tijolo (P/VP perde relevancia).
+function gordonFairPrice(price, dy, k = 0.10, g = 0.04) {
+    if (!(dy > 0) || !(price > 0) || k <= g) return null;
+    return (price * dy) / (k - g);
+}
+
 async function fetchFiiValuation(ticker) {
     const res = await fetch(`${FUNDAMENTALS_BASE}/api/fii?ticker=${encodeURIComponent(ticker)}`).catch(() => null);
     if (!res || !res.ok) return null;
     const data = await res.json().catch(() => null);
     if (!data || !Number.isFinite(data.price) || data.price <= 0) return null;
 
-    const fairPrice = (data.pvp > 0) ? data.price / data.pvp : null;
+    // Papel: preco justo via P/VP. Tijolo: via Gordon (dividendos descontados).
+    const fairPrice = data.fundType === 'tijolo'
+        ? gordonFairPrice(data.price, data.dy)
+        : (data.pvp > 0 ? data.price / data.pvp : null);
     const dyOk = Number.isFinite(data.dy) && data.dy > 0;
-    const bazin = dyOk ? (data.price * data.dy) / 0.06 : null;
+    // FIIs: Bazin adaptado exige DY minimo de 10% a.a. (nao 6% como acoes).
+    const bazin = dyOk ? (data.price * data.dy) / 0.10 : null;
 
     return {
         type: 'fii',
+        fundType: data.fundType || null,
         pvp: data.pvp ?? null,
         dy: dyOk ? data.dy : null,
         fairPrice,
