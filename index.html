@@ -175,20 +175,25 @@
 
         <!-- Minha Carteira -->
         <div id="portfolio-section" class="mt-8 border-t border-white/10 pt-6 md:pt-7">
-            <div id="portfolio-login-gate" class="hidden max-w-sm mx-auto text-center py-8">
-                <div class="flex items-center justify-center w-12 h-12 rounded-2xl bg-indigo-500/10 text-indigo-400 mx-auto mb-4">
-                    <svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="9" rx="2"></rect><path d="M8 11V7a4 4 0 018 0v4"></path></svg>
+            <div id="portfolio-login-gate" class="hidden">
+                <div class="glass max-w-sm mx-auto text-center rounded-3xl border border-white/10 shadow-2xl px-6 py-8 md:px-8 md:py-10 overflow-hidden relative">
+                    <div class="absolute inset-0 bg-gradient-to-b from-indigo-500/10 to-transparent pointer-events-none"></div>
+                    <div class="relative">
+                        <div class="flex items-center justify-center w-14 h-14 rounded-2xl bg-indigo-500/10 text-indigo-400 mx-auto mb-5 ring-1 ring-indigo-500/30">
+                            <svg class="w-7 h-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="9" rx="2"></rect><path d="M8 11V7a4 4 0 018 0v4"></path></svg>
+                        </div>
+                        <h2 class="text-base font-black text-slate-200 uppercase tracking-[0.2em] mb-1.5">Minha Carteira</h2>
+                        <p class="text-slate-500 text-sm mb-6">Seus ativos ficam guardados com segurança. Digite a senha pra acessar.</p>
+                        <form id="portfolio-login-form" class="flex flex-col gap-3">
+                            <input type="password" id="portfolio-login-password" placeholder="Senha" autocomplete="current-password"
+                                   class="w-full bg-slate-900/70 border border-slate-600 rounded-2xl px-4 py-3 text-white text-center focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-shadow">
+                            <button type="submit" class="bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 px-6 py-3 rounded-2xl font-black text-sm tracking-wide transition-all active:scale-95 shadow-lg shadow-indigo-900/30">
+                                ENTRAR
+                            </button>
+                        </form>
+                        <p id="portfolio-login-error" class="hidden mt-3 text-sm text-red-400"></p>
+                    </div>
                 </div>
-                <h2 class="text-base font-black text-slate-300 uppercase tracking-[0.2em] mb-1">Minha Carteira</h2>
-                <p class="text-slate-500 text-sm mb-5">Protegida por senha. Digite pra acessar.</p>
-                <form id="portfolio-login-form" class="flex flex-col gap-3">
-                    <input type="password" id="portfolio-login-password" placeholder="Senha" autocomplete="current-password"
-                           class="w-full bg-slate-900/70 border border-slate-600 rounded-2xl px-4 py-3 text-white text-center focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none">
-                    <button type="submit" class="bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 px-6 py-3 rounded-2xl font-black text-sm tracking-wide transition-all active:scale-95">
-                        ENTRAR
-                    </button>
-                </form>
-                <p id="portfolio-login-error" class="hidden mt-3 text-sm text-red-400"></p>
             </div>
             <div id="portfolio-content" class="hidden">
             <div class="flex flex-col gap-4 md:flex-row md:items-center md:justify-between mb-5">
@@ -214,6 +219,24 @@
             </div>
             <div id="portfolio-chips" class="flex flex-wrap gap-2.5 mb-5 min-h-[36px]">
                 <p id="portfolio-empty" class="text-slate-600 text-sm italic">Nenhum ativo salvo ainda. Analise um ativo e clique em &ldquo;Salvar na Carteira&rdquo;.</p>
+            </div>
+            <div id="portfolio-value-summary" class="hidden grid grid-cols-2 md:grid-cols-4 gap-3 mb-5 animate-fade-in-up">
+                <div class="glass border border-white/10 rounded-2xl px-4 py-4">
+                    <p class="text-[10px] uppercase tracking-[0.18em] text-slate-500 font-black">Investido</p>
+                    <p id="pv-invested" class="text-xl font-black text-white mt-2 font-mono leading-none">—</p>
+                </div>
+                <div class="glass border border-white/10 rounded-2xl px-4 py-4">
+                    <p class="text-[10px] uppercase tracking-[0.18em] text-slate-500 font-black">Valor Atual</p>
+                    <p id="pv-current" class="text-xl font-black text-white mt-2 font-mono leading-none">—</p>
+                </div>
+                <div class="glass border border-white/10 rounded-2xl px-4 py-4">
+                    <p class="text-[10px] uppercase tracking-[0.18em] text-slate-500 font-black">Ganho/Perda</p>
+                    <p id="pv-gain" class="text-xl font-black mt-2 font-mono leading-none">—</p>
+                </div>
+                <div class="glass border border-white/10 rounded-2xl px-4 py-4">
+                    <p class="text-[10px] uppercase tracking-[0.18em] text-slate-500 font-black">Melhor Pick</p>
+                    <p id="pv-best-pick" class="text-xl font-black text-emerald-300 mt-2 leading-none">—</p>
+                </div>
             </div>
             <div id="portfolio-share-panel" class="hidden mb-5 glass border border-white/10 rounded-3xl p-5 animate-fade-in-up">
                 <label class="block text-[11px] uppercase tracking-[0.2em] text-slate-500 font-black mb-3">Codigo da Carteira</label>
@@ -670,6 +693,9 @@
             gate.classList.add('hidden');
             content.classList.remove('hidden');
             renderPortfolioChips();
+            if (Object.keys(loadPortfolio()).length > 0) {
+                analyzePortfolio();
+            }
         }
 
         document.getElementById('portfolio-login-form').addEventListener('submit', async (event) => {
@@ -732,7 +758,11 @@
             };
             savePortfolioToStorage(portfolio);
             renderPortfolioChips();
-            showFeedback(`${ticker} salvo na carteira.`, 'success');
+            if (portfolioAuthed) {
+                showFeedback(`${ticker} salvo na carteira.`, 'success');
+            } else {
+                showFeedback(`${ticker} salvo só neste navegador — faça login em "Minha Carteira" para sincronizar com o servidor.`, 'info');
+            }
         }
 
         function removeFromPortfolio(ticker) {
@@ -867,6 +897,7 @@
 
             portStatusEl.classList.remove('hidden');
             tableWrapper.classList.add('hidden');
+            document.getElementById('portfolio-value-summary').classList.add('hidden');
             tableBody.innerHTML = '';
             btn.disabled = true;
             btn.textContent = 'ANALISANDO...';
@@ -882,11 +913,14 @@
                 try {
                     const ctrl = new AbortController();
 
+                    const quantity = Number.isFinite(saved.quantity) ? saved.quantity : null;
+                    const avgPrice = Number.isFinite(saved.avgPrice) ? saved.avgPrice : null;
+
                     if (type === 'fii') {
                         const fii = await fetchFiiData(ticker, ctrl.signal);
                         const fairPrice = (fii.pvp > 0) ? fii.price / fii.pvp : null;
                         const bazin = (fii.dy > 0) ? (fii.price * fii.dy) / 0.06 : null;
-                        rows.push({ ticker, type, price: fii.price, fairPrice, bazin, lynch: NaN, roe: NaN, margin: computeMargin(fairPrice, bazin, fii.price) });
+                        rows.push({ ticker, type, price: fii.price, fairPrice, bazin, lynch: NaN, roe: NaN, quantity, avgPrice, margin: computeMargin(fairPrice, bazin, fii.price) });
                     } else {
                         // Usa apenas o preço atualizado — fundamentos vêm do momento da análise
                         const { price } = await fetchQuote(ticker, ctrl.signal);
@@ -894,10 +928,10 @@
                         const bazin = saved.bazin != null ? saved.bazin : NaN;
                         const lynch = saved.lynch != null ? saved.lynch : NaN;
                         const roe   = Number.isFinite(saved.roe) ? saved.roe : calculateRoe(saved.lpa, saved.vpa);
-                        rows.push({ ticker, type, price, fairPrice, bazin, lynch, roe, margin: computeMargin(fairPrice, bazin, price) });
+                        rows.push({ ticker, type, price, fairPrice, bazin, lynch, roe, quantity, avgPrice, margin: computeMargin(fairPrice, bazin, price) });
                     }
                 } catch (e) {
-                    rows.push({ ticker, type, price: NaN, fairPrice: NaN, bazin: NaN, lynch: NaN, roe: NaN, margin: -Infinity });
+                    rows.push({ ticker, type, price: NaN, fairPrice: NaN, bazin: NaN, lynch: NaN, roe: NaN, quantity: null, avgPrice: null, margin: -Infinity });
                 }
 
                 if (i < tickers.length - 1) await new Promise(r => setTimeout(r, 700));
@@ -934,10 +968,45 @@
                 tableBody.appendChild(tr);
             });
 
+            renderPortfolioValueSummary(rows);
+
             portStatusEl.classList.add('hidden');
             tableWrapper.classList.remove('hidden');
             btn.disabled = false;
             btn.textContent = 'ANALISAR CARTEIRA';
+        }
+
+        function renderPortfolioValueSummary(rows) {
+            const summaryEl = document.getElementById('portfolio-value-summary');
+            const withPosition = rows.filter(r => Number.isFinite(r.quantity) && Number.isFinite(r.avgPrice) && Number.isFinite(r.price));
+
+            if (withPosition.length === 0) {
+                summaryEl.classList.add('hidden');
+                return;
+            }
+
+            const invested = withPosition.reduce((sum, r) => sum + r.quantity * r.avgPrice, 0);
+            const current  = withPosition.reduce((sum, r) => sum + r.quantity * r.price, 0);
+            const gain     = current - invested;
+            const gainPct  = invested > 0 ? gain / invested : 0;
+
+            const bestMargin = rows.reduce((best, r) => Number.isFinite(r.margin) && r.margin > best ? r.margin : best, -Infinity);
+            const bestTicker = rows.find(r => r.margin === bestMargin)?.ticker;
+
+            const fmtMoney = v => `R$ ${v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+            document.getElementById('pv-invested').textContent = fmtMoney(invested);
+            document.getElementById('pv-current').textContent = fmtMoney(current);
+
+            const gainEl = document.getElementById('pv-gain');
+            gainEl.textContent = `${gain >= 0 ? '+' : ''}${fmtMoney(gain)} (${gainPct >= 0 ? '+' : ''}${(gainPct * 100).toFixed(1)}%)`;
+            gainEl.className = `text-xl font-black mt-2 font-mono leading-none ${gain >= 0 ? 'text-emerald-300' : 'text-red-400'}`;
+
+            document.getElementById('pv-best-pick').textContent = bestTicker || '—';
+
+            const noteSuffix = withPosition.length < rows.length ? ` (${withPosition.length}/${rows.length} com qtd/preço médio salvos)` : '';
+            summaryEl.title = `Baseado em ${withPosition.length} ativo(s) com quantidade e preço médio${noteSuffix}`;
+            summaryEl.classList.remove('hidden');
         }
 
         function toggleImportPanel() {
