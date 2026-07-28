@@ -1,5 +1,8 @@
 {
   "name": "invest-app",
   "private": true,
-  "type": "module"
+  "type": "module",
+  "dependencies": {
+    "@libsql/client": "^0.17.4"
+  }
 }

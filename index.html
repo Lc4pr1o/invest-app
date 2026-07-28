@@ -175,6 +175,22 @@
 
         <!-- Minha Carteira -->
         <div id="portfolio-section" class="mt-8 border-t border-white/10 pt-6 md:pt-7">
+            <div id="portfolio-login-gate" class="hidden max-w-sm mx-auto text-center py-8">
+                <div class="flex items-center justify-center w-12 h-12 rounded-2xl bg-indigo-500/10 text-indigo-400 mx-auto mb-4">
+                    <svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="9" rx="2"></rect><path d="M8 11V7a4 4 0 018 0v4"></path></svg>
+                </div>
+                <h2 class="text-base font-black text-slate-300 uppercase tracking-[0.2em] mb-1">Minha Carteira</h2>
+                <p class="text-slate-500 text-sm mb-5">Protegida por senha. Digite pra acessar.</p>
+                <form id="portfolio-login-form" class="flex flex-col gap-3">
+                    <input type="password" id="portfolio-login-password" placeholder="Senha" autocomplete="current-password"
+                           class="w-full bg-slate-900/70 border border-slate-600 rounded-2xl px-4 py-3 text-white text-center focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none">
+                    <button type="submit" class="bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 px-6 py-3 rounded-2xl font-black text-sm tracking-wide transition-all active:scale-95">
+                        ENTRAR
+                    </button>
+                </form>
+                <p id="portfolio-login-error" class="hidden mt-3 text-sm text-red-400"></p>
+            </div>
+            <div id="portfolio-content" class="hidden">
             <div class="flex flex-col gap-4 md:flex-row md:items-center md:justify-between mb-5">
                 <h2 class="text-base md:text-lg font-black text-slate-400 uppercase tracking-[0.2em]">Minha Carteira</h2>
                 <div class="flex flex-wrap items-center gap-2">
@@ -255,6 +271,7 @@
                     </thead>
                     <tbody id="portfolio-table-body" class="divide-y divide-white/10"></tbody>
                 </table>
+            </div>
             </div>
         </div>
     </div>
@@ -594,16 +611,90 @@
         }
 
         // ---- CARTEIRA ----
-        const PORTFOLIO_KEY = 'investauto_portfolio';
+        // Cache local instantaneo (a UI le/escreve aqui na hora) espelhado no
+        // Turso em segundo plano via /api/portfolio, protegido por senha.
+        const PORTFOLIO_KEY = 'investauto_portfolio_cache';
+        let portfolioAuthed = false;
+        let portfolioSyncTimer = null;
 
         function loadPortfolio() {
             try { return JSON.parse(localStorage.getItem(PORTFOLIO_KEY)) || {}; }
             catch { return {}; }
         }
 
-        function savePortfolioToStorage(data) {
+        function setLocalPortfolioCache(data) {
             localStorage.setItem(PORTFOLIO_KEY, JSON.stringify(data));
         }
+
+        function savePortfolioToStorage(data) {
+            setLocalPortfolioCache(data);
+            queuePortfolioSync(data);
+        }
+
+        function queuePortfolioSync(data) {
+            if (!portfolioAuthed) return;
+            clearTimeout(portfolioSyncTimer);
+            portfolioSyncTimer = setTimeout(async () => {
+                try {
+                    const res = await fetch('/api/portfolio', {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ portfolio: data })
+                    });
+                    if (!res.ok) throw new Error('sync failed');
+                } catch {
+                    showFeedback('Não foi possível sincronizar com o servidor. As mudanças ficaram salvas só neste navegador por enquanto.', 'error');
+                }
+            }, 500);
+        }
+
+        async function initPortfolio() {
+            const gate = document.getElementById('portfolio-login-gate');
+            const content = document.getElementById('portfolio-content');
+            try {
+                const res = await fetch('/api/portfolio');
+                if (res.status === 401) {
+                    portfolioAuthed = false;
+                    gate.classList.remove('hidden');
+                    content.classList.add('hidden');
+                    return;
+                }
+                if (!res.ok) throw new Error('load failed');
+                const data = await res.json();
+                setLocalPortfolioCache(data.portfolio || {});
+                portfolioAuthed = true;
+            } catch {
+                // Servidor indisponivel: segue com o que ja estava no cache local (modo offline).
+                portfolioAuthed = false;
+            }
+            gate.classList.add('hidden');
+            content.classList.remove('hidden');
+            renderPortfolioChips();
+        }
+
+        document.getElementById('portfolio-login-form').addEventListener('submit', async (event) => {
+            event.preventDefault();
+            const pwInput = document.getElementById('portfolio-login-password');
+            const errEl = document.getElementById('portfolio-login-error');
+            errEl.classList.add('hidden');
+            try {
+                const res = await fetch('/api/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ password: pwInput.value })
+                });
+                if (!res.ok) {
+                    errEl.textContent = 'Senha incorreta.';
+                    errEl.classList.remove('hidden');
+                    return;
+                }
+                pwInput.value = '';
+                await initPortfolio();
+            } catch {
+                errEl.textContent = 'Falha ao conectar com o servidor.';
+                errEl.classList.remove('hidden');
+            }
+        });
 
         function calculateRoe(lpa, vpa) {
             if (Number.isFinite(lpa) && Number.isFinite(vpa) && vpa !== 0) {
@@ -1039,8 +1130,8 @@
 
         syncGrowthDisplay();
 
-        // Inicializa carteira ao carregar a página
-        renderPortfolioChips();
+        // Inicializa carteira ao carregar a página (checa login e sincroniza com o servidor)
+        initPortfolio();
 
         function setUnavailableBadge(badgeId) {
             const badgeEl = document.getElementById(badgeId);

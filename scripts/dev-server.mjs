@@ -19,8 +19,21 @@ const routes = {
     '/api/quote': (await import('../api/quote.js')).default,
     '/api/search': (await import('../api/search.js')).default,
     '/api/dividends': (await import('../api/dividends.js')).default,
-    '/api/fii': (await import('../api/fii.js')).default
+    '/api/fii': (await import('../api/fii.js')).default,
+    '/api/login': (await import('../api/login.js')).default,
+    '/api/portfolio': (await import('../api/portfolio.js')).default
 };
+
+function readBody(req) {
+    return new Promise((resolve) => {
+        let raw = '';
+        req.on('data', chunk => { raw += chunk; });
+        req.on('end', () => {
+            if (!raw) { resolve(undefined); return; }
+            try { resolve(JSON.parse(raw)); } catch { resolve(undefined); }
+        });
+    });
+}
 
 const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://localhost');
@@ -28,13 +41,14 @@ const server = http.createServer(async (req, res) => {
 
     if (handler) {
         const query = Object.fromEntries(url.searchParams);
+        const body = (req.method === 'POST' || req.method === 'PUT') ? await readBody(req) : undefined;
         const fauxRes = {
             setHeader: (k, v) => res.setHeader(k, v),
             status(code) { res.statusCode = code; return this; },
             json(data) { res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify(data)); },
             end() { res.end(); }
         };
-        await handler({ method: req.method, query }, fauxRes);
+        await handler({ method: req.method, query, body, headers: req.headers }, fauxRes);
         return;
     }
 
